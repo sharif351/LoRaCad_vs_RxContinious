@@ -14,10 +14,10 @@
 
 #define RF_POWER                                    0 // dBm
 #define LORA_BANDWIDTH                              LORA_BW_500
-#define LORA_SPREADING_FACTOR                       11        // [SF7..SF12]
+#define LORA_SPREADING_FACTOR                       7        // [SF7..SF12]
 #define LORA_CODINGRATE                             1         // [1: 4/5, 2: 4/6, 3: 4/7, 4: 4/8]
 #define LORA_SYMBOL_TIMEOUT                         5         // Symbols
-#define LORA_PREAMBLE_LENGTH                        16        // Same for Tx and Rx
+#define LORA_PREAMBLE_LENGTH                        250        // Same for Tx and Rx
 #define LORA_FIX_LENGTH_PAYLOAD_ON                  false
 #define LORA_IQ_INVERSION_ON                        false
 #define LORA_PYLD_LENGTH                            255       // Num of Bytes
@@ -27,6 +27,7 @@
 typedef enum
 {
     TX_START,
+		CAD,
     TX,
     RX,
     CAD_DET,
@@ -45,7 +46,7 @@ typedef enum
 }eMode_t;
 
 // State Machine variable 
-States_t State = RX;
+States_t State = CAD;
 
 // IRQ variable
 volatile uint16_t irqRegs;
@@ -56,6 +57,7 @@ static uint8_t buffer[LORA_PYLD_LENGTH] = {0};
 
 // define Timer Event
 TimerEvent_t TxTimer;
+TimerEvent_t RxTimer;
 
 ModulationParams_t ModulationParams;
 PacketParams_t PacketParams;
@@ -82,7 +84,7 @@ void OnDIO1Interrupt( void )
         {
             if( ( irqRegs & IRQ_CAD_ACTIVITY_DETECTED ) == IRQ_CAD_ACTIVITY_DETECTED )
             {
-            		State = CAD_DET;
+            		State = RX;
             }
             else
             {
@@ -120,7 +122,7 @@ void RadioStartCad( void )
     SX126xSetDioIrqParams( IRQ_RADIO_ALL, IRQ_RADIO_ALL, IRQ_RADIO_NONE, IRQ_RADIO_NONE );
 
     // Set CAD parameters
-    SX126xSetCadParams( LORA_CAD_08_SYMBOL, 20, 20, LORA_CAD_ONLY, 0xFFFFF );
+    SX126xSetCadParams( LORA_CAD_04_SYMBOL, 21, 10, LORA_CAD_ONLY, 0 );
     
     // Start CAD
     SX126xSetCad( );
@@ -136,6 +138,18 @@ void OnTxTimer( void )
 
         // Check Tx Ready
         State = TX;         // do the config and lunch first CAD
+}
+
+/*!
+ * \brief Function executed on Timer Interrupt
+ */
+void OnRxTimer( void )
+{
+        // Stop Timer
+        TimerStop( &RxTimer );
+
+        // Check Tx Ready
+        State = CAD;         // do the config and lunch first CAD
 }
 
 
@@ -241,6 +255,13 @@ int main( void )
         TimerSetValue( &TxTimer, 500 );
         State = TX_START;
     }
+		else if( mode == RX_MODE )
+    {
+        TimerInit( &RxTimer, OnRxTimer );
+        TimerSetValue( &RxTimer, 60 );
+        State = CAD;
+				SX126xSetLoRaSymbNumTimeout( 13 );
+    }
 
     while( 1 )
     {
@@ -263,6 +284,13 @@ int main( void )
 
                 SX126xSendPayload( buffer, LORA_PYLD_LENGTH, 0 );
                 break;
+						
+						 case CAD:
+                State = LOWPOWER;
+                // Start CAD
+                RadioStartCad( );         // do the config and lunch first CAD
+								State = LOWPOWER;
+                break;
 
             case RX:
                 SX126xSetStandby( STDBY_RC );
@@ -283,22 +311,6 @@ int main( void )
                 // Disable Board Interrupt
                 BoardCriticalSectionBegin( &mask );
 						
-								//uint8_t len = 0;
-								//uint8_t buf[LORA_PYLD_LENGTH] = {0};
-								//int ret = SX126xGetPayload(buf, &len, LORA_PYLD_LENGTH);
-								//if(ret == 0){
-								//	printf("\n********Data Start******\n\r");
-								//	for(int i = 0; i<len; i++){
-								//		printf("%d ", buf[i]);
-								//	}
-								//	printf("\r\n********Data end******\n");
-								//}else{
-								//
-								//	printf("\nReceive error!");
-								//}
-						
-								//int8_t RssiInst = SX126xGetRssiInst();
-						
 								PacketStatus_t pktStatus = {0};
 								SX126xGetPacketStatus( &pktStatus );
 								//printf("Received RSSI_inst = %d\t", RssiInst);
@@ -306,7 +318,7 @@ int main( void )
 								//printf("Received SignalRssiPkt = %d\t", pktStatus.Params.LoRa.SignalRssiPkt);
 								printf("Received SnrPkt = %d\n\r", pktStatus.Params.LoRa.SnrPkt);
 						
-                State = RX;
+                State = CAD_DONE;
                 // Toggle LED (FOR SEMTECH REF BOARD ONLY)
                 GpioToggle( &LedRx );
                 // Enable Board Interrupt
@@ -327,7 +339,7 @@ int main( void )
                 break;
 
             case TIMEOUT:
-                printf("\r\nTimeOut");
+                //printf("\r\nTimeOut");
 
                 // Disable Board Interrupt
                 BoardCriticalSectionBegin( &mask );
@@ -335,7 +347,7 @@ int main( void )
                 if( mode == TX_MODE )
                     State = TX_START;
                 else if( mode == RX_MODE )
-                    State = RX;
+                    State = CAD_DONE;
 
                 // Enable Board Interrupt
                 BoardCriticalSectionEnd( &mask );
@@ -344,6 +356,14 @@ int main( void )
 
             case LOWPOWER:
                 break;
+												
+						case CAD_DONE:
+								//printf("\r\n<<<<<<<<<<< CAD Done >>>>>>>>>>>>");
+								BoardCriticalSectionBegin( &mask );	
+								TimerStart( &RxTimer );						
+								State = LOWPOWER;
+								BoardCriticalSectionEnd( &mask );
+								break;
 
             default:
                 printf("\r\nERR");
