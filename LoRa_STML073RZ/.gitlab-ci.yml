@@ -1,0 +1,51 @@
+image: gitlab-loramac-node-docker-image
+
+variables:
+  CI_UNIT_TEST_BRANCH_NAME: $CI_BUILD_REF_NAME
+
+before_script:
+  # Install ssh-agent if not already installed, it is required by Docker.
+  # (change apt-get to yum if you use a CentOS-based image)
+  - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+
+  # Run ssh-agent (inside the build environment)
+  - eval $(ssh-agent -s)
+
+  # Add the SSH key stored in SSH_PRIVATE_KEY variable to the agent store
+  - ssh-add <(echo "$SSH_PRIVATE_KEY")
+
+  # For Docker builds disable host key checking. Be aware that by adding that
+  # you are suspectible to man-in-the-middle attacks.
+  # WARNING: Use this only with the Docker executor, if you use it with shell
+  # you will overwrite your user's SSH config.
+  - mkdir -p ~/.ssh
+  - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
+  # In order to properly check the server's host key, assuming you created the
+  # SSH_SERVER_HOSTKEYS variable previously, uncomment the following two lines
+  # instead.
+  # - mkdir -p ~/.ssh
+  # - '[[ -f /.dockerenv ]] && echo "$SSH_SERVER_HOSTKEYS" > ~/.ssh/known_hosts'
+  - apt-get update
+
+stages:
+  - build
+  - test
+
+job-build:
+  stage: build
+  script:
+    - cd ../
+    - rm -rf loramac-node
+    - cp -r LoRaMac-node loramac-node
+    - if [ -d loramac-node-unit-${CI_UNIT_TEST_BRANCH_NAME//\//-} ]; then cd loramac-node-unit-${CI_UNIT_TEST_BRANCH_NAME//\//-}; else git clone git@ch02git1.semnet.dom:LoRa-node/LoRaMac-node-unit.git loramac-node-unit-${CI_UNIT_TEST_BRANCH_NAME//\//-}; cd loramac-node-unit-${CI_UNIT_TEST_BRANCH_NAME//\//-}; git checkout $CI_UNIT_TEST_BRANCH_NAME; fi
+    - git fetch
+    - git pull
+    - if [ -d build ]; then cd build; else mkdir build; cd build; fi
+    - cmake ..
+    - make
+
+job-test:
+  stage: test
+  script:
+    - cd ../loramac-node-unit-${CI_UNIT_TEST_BRANCH_NAME//\//-}/build
+    - if ! make test; then echo ;fi
