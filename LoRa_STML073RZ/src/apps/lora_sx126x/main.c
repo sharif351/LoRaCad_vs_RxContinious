@@ -14,10 +14,10 @@
 
 #define RF_POWER                                    0 // dBm
 #define LORA_BANDWIDTH                              LORA_BW_500
-#define LORA_SPREADING_FACTOR                       11        // [SF7..SF12]
+#define LORA_SPREADING_FACTOR                       7      // [SF7..SF12]
 #define LORA_CODINGRATE                             1         // [1: 4/5, 2: 4/6, 3: 4/7, 4: 4/8]
 #define LORA_SYMBOL_TIMEOUT                         5         // Symbols
-#define LORA_PREAMBLE_LENGTH                        16        // Same for Tx and Rx
+#define LORA_PREAMBLE_LENGTH                        250        // Same for Tx and Rx
 #define LORA_FIX_LENGTH_PAYLOAD_ON                  false
 #define LORA_IQ_INVERSION_ON                        false
 #define LORA_PYLD_LENGTH                            255       // Num of Bytes
