@@ -20,7 +20,7 @@
 #define LORA_PREAMBLE_LENGTH                        250        // Same for Tx and Rx
 #define LORA_FIX_LENGTH_PAYLOAD_ON                  false
 #define LORA_IQ_INVERSION_ON                        false
-#define LORA_PYLD_LENGTH                            255       // Num of Bytes
+#define LORA_PYLD_LENGTH                            8       // Num of Bytes
 
 
 // Define Radio States
@@ -258,7 +258,7 @@ int main( void )
 		else if( mode == RX_MODE )
     {
         TimerInit( &RxTimer, OnRxTimer );
-        TimerSetValue( &RxTimer, 60 );
+        TimerSetValue( &RxTimer, 30 );
         State = CAD;
 				SX126xSetLoRaSymbNumTimeout( 13 );
     }
@@ -268,13 +268,16 @@ int main( void )
         switch( State )
         {
             case TX_START:
-                TimerStart( &TxTimer );
-                State = LOWPOWER;
+                TimerStart( &TxTimer );                
+								BoardCriticalSectionBegin( &mask );															
+								State = LOWPOWER;
+								GpioWrite( &LedTx, 0 );
+								BoardCriticalSectionEnd( &mask );
                 break;
 
             case TX:
 								printf("Transmitting----");
-                State = LOWPOWER;                
+                              
                 SX126xSetStandby( STDBY_RC );
                 // Start TX
                 SX126xSetDioIrqParams( IRQ_TX_DONE | IRQ_RX_TX_TIMEOUT,
@@ -283,13 +286,23 @@ int main( void )
                        IRQ_RADIO_NONE );
 
                 SX126xSendPayload( buffer, LORA_PYLD_LENGTH, 0 );
+						
+								BoardCriticalSectionBegin( &mask );															
+								State = LOWPOWER;
+								GpioWrite( &LedTx, 1 );
+								BoardCriticalSectionEnd( &mask );
                 break;
 						
 						 case CAD:
                 State = LOWPOWER;
                 // Start CAD
                 RadioStartCad( );         // do the config and lunch first CAD
+								// Disable Board Interrupt
+                BoardCriticalSectionBegin( &mask );
 								State = LOWPOWER;
+								GpioWrite( &LedRx, 1 );
+						 // Disable Board Interrupt
+                BoardCriticalSectionEnd( &mask );
                 break;
 
             case RX:
@@ -320,19 +333,18 @@ int main( void )
 						
                 State = CAD_DONE;
                 // Toggle LED (FOR SEMTECH REF BOARD ONLY)
-                GpioToggle( &LedRx );
+                //GpioToggle( &LedRx );
                 // Enable Board Interrupt
                 BoardCriticalSectionEnd( &mask );								
 
                 break;
 
-            case TX_DONE:
-                printf("TX-done: %u\r\n",++txCnt);
+            case TX_DONE:                printf("TX-done: %u\r\n",++txCnt);
 
                 // Disable Board Interrupt
                 BoardCriticalSectionBegin( &mask );
                 State = TX_START;
-                GpioToggle( &LedTx );
+                //GpioToggle( &LedTx );
                 // Enable Board Interrupt
                 BoardCriticalSectionEnd( &mask );
 
@@ -345,9 +357,13 @@ int main( void )
                 BoardCriticalSectionBegin( &mask );
 
                 if( mode == TX_MODE )
+								{
                     State = TX_START;
+								}
                 else if( mode == RX_MODE )
-                    State = CAD_DONE;
+								{
+                    State = CAD_DONE;										
+								}
 
                 // Enable Board Interrupt
                 BoardCriticalSectionEnd( &mask );
@@ -359,10 +375,12 @@ int main( void )
 												
 						case CAD_DONE:
 								//printf("\r\n<<<<<<<<<<< CAD Done >>>>>>>>>>>>");
-								BoardCriticalSectionBegin( &mask );	
-								TimerStart( &RxTimer );						
+								BoardCriticalSectionBegin( &mask );															
 								State = LOWPOWER;
+								GpioWrite( &LedRx, 0 );
 								BoardCriticalSectionEnd( &mask );
+						
+								TimerStart( &RxTimer );
 								break;
 
             default:
